@@ -1,0 +1,130 @@
+version: '3.8'
+
+services:
+  whisper-asr-secure:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whisper-asr-secure
+    restart: unless-stopped
+    ports:
+      - "9443:9443"  # HTTPS only
+    environment:
+      # ASR Configuration
+      - ASR_ENGINE=faster_whisper
+      - ASR_MODEL=base
+      - ASR_DEVICE=cpu
+      - ASR_QUANTIZATION=int8
+      - SAMPLE_RATE=16000
+      
+      # Security Configuration
+      - TLS_ENABLED=true
+      - TLS_CERT_PATH=/app/certs/cert.pem
+      - TLS_KEY_PATH=/app/certs/key.pem
+      - TLS_AUTO_GENERATE=true
+      
+      # Redis Configuration (Self-contained - no external Redis needed)
+      - REDIS_AUTH_ENABLED=false
+      - REDIS_URL=redis://localhost:6379
+      - REDIS_PASSWORD=
+      - REDIS_TOKEN_DB=0
+      - REDIS_PUBSUB_DB=1
+      
+      # WebSocket Configuration
+      - WEBSOCKET_ENABLED=true
+      - WEBSOCKET_MAX_CONNECTIONS=100
+      - WEBSOCKET_TIMEOUT=300
+      - DEFAULT_WEBSOCKETS=true
+      
+      # Monitoring Configuration
+      - ANALYTICS_ENABLED=true
+      - LOGGING_LEVEL=INFO
+      - METRICS_ENABLED=true
+      - HEALTH_CHECK_INTERVAL=30
+      
+      # Service Configuration
+      - HOST=0.0.0.0
+      - PORT=9443
+      - WORKERS=1
+      - MAX_FILE_SIZE=25MB
+      - CORS_ORIGINS=*
+      
+    volumes:
+      # Certificate storage
+      - ./certs:/app/certs:rw
+      # Log storage
+      - ./logs:/app/logs:rw
+      # Temporary file storage
+      - whisper_temp:/app/temp
+      # Model cache
+      - whisper_models:/home/whisper/.cache/whisper
+    
+    networks:
+      - whisper-network
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "-k", "https://localhost:9443/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    security_opt:
+      - no-new-privileges:true
+    
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+
+  # Redis service for development/testing (remove when using Upstash)
+  redis-dev:
+    image: redis:7-alpine
+    container_name: whisper-redis-dev
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-securepassword}
+    command: redis-server --requirepass ${REDIS_PASSWORD:-securepassword}
+    volumes:
+      - redis_data:/data
+    networks:
+      - whisper-network
+    profiles:
+      - dev  # Only start with --profile dev
+
+  # Monitoring service (optional)
+  redis-insight:
+    image: redislabs/redisinsight:latest
+    container_name: whisper-redis-insight
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    volumes:
+      - redis_insight:/db
+    networks:
+      - whisper-network
+    profiles:
+      - monitoring  # Only start with --profile monitoring
+
+volumes:
+  whisper_temp:
+    driver: local
+  whisper_models:
+    driver: local
+  redis_data:
+    driver: local
+  redis_insight:
+    driver: local
+
+networks:
+  whisper-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
