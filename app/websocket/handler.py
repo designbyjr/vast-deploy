@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs
 
-from fastapi import WebSocket, WebSocketDisconnect, Query, Depends
+from fastapi import WebSocket, WebSocketDisconnect
 from starlette.websockets import WebSocketState
 
 from app.middleware.auth import verify_websocket_auth
@@ -281,15 +281,14 @@ class SecureWebSocketHandler:
         return user_data
     
     @staticmethod
-    async def handle_websocket_connection(websocket: WebSocket, connection_id: str, 
-                                        token: Optional[str] = Query(None)):
+    async def handle_websocket_connection(websocket: WebSocket, connection_id: str):
         """Handle a new WebSocket connection with authentication."""
         try:
             # Accept connection first
             await websocket.accept()
             
             # Authenticate
-            user_data = await SecureWebSocketHandler.authenticate_websocket(websocket, token)
+            user_data = await SecureWebSocketHandler.authenticate_websocket(websocket)
             if not user_data:
                 return  # Connection already closed due to auth failure
             
